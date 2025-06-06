@@ -1,8 +1,7 @@
 #![allow(dead_code)]
 
-use std::str::FromStr;
-
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 /// Represents the geographic latitude in decimal degrees.
 /// Positive values indicate northern hemisphere.
 #[derive(Serialize, Deserialize, Debug)]
@@ -215,4 +214,17 @@ pub struct ReportMeta {
     pub confidence_threshold: u8,
     /// Additional notes or remarks (optional)
     pub notes: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Embeddings {
+    plot_embeddings: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FireReport {
+    fire_event: FireEvent,
+    climate_impact: ClimateImpact,
+    damage_impact: DamageImpact,
+    embeddings: Embeddings,
 }
