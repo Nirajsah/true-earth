@@ -1,0 +1,22 @@
+{
+  "name": "true-earth",
+  "version": "1.0.0",
+  "description": "True Earth project with Go and Rust services",
+  "scripts": {
+    "proto:clean": "rm -rf ai_orchestrator/proto/*.pb.go backend/src/proto/*.rs",
+    "proto:go": "cd ai_orchestrator && protoc -I=../proto --go_out=./proto --go_opt=paths=source_relative --go-grpc_out=./proto --go-grpc_opt=paths=source_relative ../proto/greeter.proto",
+    "proto:rust": "cd backend && cargo build",
+    "proto:build": "npm run proto:clean && npm run proto:go && npm run proto:rust",
+    "ai:dev": "cd ai_orchestrator && go run main.go",
+    "backend:dev": "cd backend && cargo run",
+    "start:ai": "npm run proto:go && npm run ai:dev",
+    "start:backend": "npm run proto:rust && npm run backend:dev",
+    "start:all": "npm run proto:build && concurrently \"npm run ai:dev\" \"npm run backend:dev\"",
+    "test:ai": "cd ai_orchestrator && go test ./...",
+    "test:backend": "cd backend && cargo test",
+    "test": "npm run test:ai && npm run test:backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0"
+  }
+}
