@@ -30,7 +30,7 @@ export function AskAIButton({
       animate={{ opacity: 1, scale: 1 }} // Animate in
       exit={{ opacity: 0, scale: 0 }} // Animate out when drawer is open
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      className="fixed z-[100]" // Adjust z-index as needed
+      className="fixed z-[100] cursor-pointer" // Adjust z-index as needed
       style={{ right: buttonRightOffset, bottom: buttonBottomOffset }}
     >
       <Button
