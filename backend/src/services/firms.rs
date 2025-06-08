@@ -53,4 +53,4 @@ pub async fn fetch_firms_data() -> Result<Vec<Firms>, String> {
         .collect();
 
     Ok(filtered_data)
-} 
+}

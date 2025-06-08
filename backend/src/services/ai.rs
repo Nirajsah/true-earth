@@ -2,8 +2,7 @@ use std::{error::Error, fs::File};
 use std::time::Duration;
 use tonic::transport::Channel; // Import the Channel type for gRPC communication
 
-use crate::ingest::fire_event::FireEvent;
-use crate::models::firms::Firms;
+use crate::models::firms::{Firms, FireEvent};
 use crate::proto::greeter::{
     greeter_client::GreeterClient, // Import the generated client stub struct
     HelloRequest,                 // Import the generated request message struct
