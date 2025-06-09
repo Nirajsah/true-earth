@@ -1,14 +1,16 @@
 // models/firms.rs
 
-use std::{str::FromStr};
 use geo::BoundingRect;
-use geo::{Contains};
+use geo::Contains;
+use rstar::Envelope;
 use rstar::RTreeObject;
 use rstar::AABB;
-use rstar::Envelope;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 use crate::ingest::utils::ALL_COUNTRY_BOUNDARIES;
+
+use super::event_trait::Event;
 
 /// Represents a fire detection from the FIRMS dataset.
 /// This struct is used to deserialize the JSON data from FIRMS.
@@ -44,7 +46,10 @@ impl RTreeObject for CountryBoundary {
     fn envelope(&self) -> Self::Envelope {
         // Calculate the bounding box of the polygon
         let bounds = self.polygon.bounding_rect().unwrap(); // unwrap() assuming valid polygons
-        AABB::from_corners([bounds.min().x, bounds.min().y], [bounds.max().x, bounds.max().y])
+        AABB::from_corners(
+            [bounds.min().x, bounds.min().y],
+            [bounds.max().x, bounds.max().y],
+        )
     }
 }
 
@@ -194,7 +199,7 @@ pub struct FireEvent {
     pub confidence: FireConfidence,
     pub frp: FireRadiativePower,
     pub daynight: DayNight,
-    pub country: Option<String>, // custom field
+    pub country: Option<String>,
 }
 
 impl FireEvent {
@@ -240,7 +245,10 @@ impl FireEvent {
         // then filter with a precise polygon contains check.
         if let Ok(rtree) = &*ALL_COUNTRY_BOUNDARIES {
             let firm_point = geo::Point::new(firm_point_coords[0], firm_point_coords[1]);
-            for country_boundary in rtree.iter().filter(|cb| cb.envelope().contains_point(&firm_point_coords)) {
+            for country_boundary in rtree
+                .iter()
+                .filter(|cb| cb.envelope().contains_point(&firm_point_coords))
+            {
                 if country_boundary.polygon.contains(&firm_point) {
                     self.country = Some(country_boundary.name.clone());
                     return; // Found the country, exit
@@ -253,4 +261,11 @@ impl FireEvent {
     }
 }
 
-
+impl Event for FireEvent {
+    fn get_embeddings(
+        &self,
+        ai_service: crate::services::ai::AiServiceClient,
+    ) -> Result<Vec<f32>, tonic::Status> {
+        todo!()
+    }
+}

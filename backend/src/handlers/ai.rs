@@ -23,7 +23,10 @@ pub async fn generate_embedding_handler(
     Extension(mut ai_client): Extension<AiServiceClient>,
     Json(payload): Json<EmbeddingRequestPayload>,
 ) -> Result<impl IntoResponse> {
-    println!("REST endpoint received request for embedding for text: {}", payload.text);
+    println!(
+        "REST endpoint received request for embedding for text: {}",
+        payload.text
+    );
 
     // Call the gRPC client method
     // In a real scenario, this would be ai_client.get_embedding(payload.text).await?
@@ -34,32 +37,13 @@ pub async fn generate_embedding_handler(
             // For now, simulate an embedding using the greeting.
             // In reality, this would be the actual embedding vector from your Go service.
             println!("Received greeting from Go gRPC: {}", message);
-            let embeddings = ai_client.get_embedding(message).await.map_err(|e| {
-                format!("Failed to get embedding: {:?}", e)
-            })?;
-            Ok(Json(EmbeddingResponsePayload { embedding: embeddings }))
+            // let embeddings = ai_client.get_embedding(message).await.map_err(|e| {
+            //     format!("Failed to get embedding: {:?}", e)
+            // })?;
+            Ok(Json(EmbeddingResponsePayload {
+                embedding: vec![1.0, 2.0],
+            }))
         }
-        Err(e) => {
-            Err(format!("Failed to get embedding: {:?}", e).into())
-        }
-    }
-}
-
-// This handler is for testing purposes, simulating reading a file and returning its content
-#[axum::debug_handler]
-pub async fn read_file_handler(
-    Extension(mut ai_client): Extension<AiServiceClient>,
-    Json(payload): Json<EmbeddingRequestPayload>,
-) -> Result<impl IntoResponse> {
-    println!("REST endpoint received request to read file: {}", payload.text);
-    // Call the gRPC client method to read a file
-    let file_content = ai_client.read_file().await;
-    match file_content {
-        Ok(content) => {
-            Ok(Json(content))
-        }
-        Err(e) => {
-            Err(format!("Failed to read file: {:?}", e).into())
-        }
+        Err(e) => Err(format!("Failed to get embedding: {:?}", e).into()),
     }
 }

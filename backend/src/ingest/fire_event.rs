@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+use std::fs::File;
+
 use serde::{Deserialize, Serialize};
-use crate::models::firms::FireEvent;
+use crate::{models::firms::{FireEvent, Firms}, services::db::DbService};
 
 /// Estimated area in hectares (ha)
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -64,4 +66,22 @@ pub struct FireReport {
     climate_impact: ClimateImpact,
     damage_impact: DamageImpact,
     embeddings: Embeddings,
+}
+
+
+/// Function to process fire events from a CSV file
+pub fn process_fire_events(db: DbService) -> Result<Vec<FireEvent>, Box<dyn std::error::Error>> {
+    let file = File::open("data.csv")?;
+    let mut rdr = csv::Reader::from_reader(file);
+    let mut fire_events: Vec<FireEvent> = Vec::new();
+
+    for result in rdr.deserialize() {
+        let record: Firms = result?;
+
+        if let Some(event) = record.to_fire_event() {
+            fire_events.push(event);
+        }
+    }
+
+    Ok(fire_events)
 }
