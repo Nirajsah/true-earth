@@ -36,7 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mongo_uri = std::env::var("MONGO_URI")?;
     let db_name = std::env::var("MONGO_DB_NAME")?;
-    let collection_name = std::env::var("MONGO_COLLECTION_NAME")?;
     let grpc_url = std::env::var("GRPC_URI")?;
 
     // Initialize gRPC Client
@@ -45,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     .expect("Failed to connect to grpcClient");
 
     // Initialize MongoDB Client
-    let db_service = DbService::new(&mongo_uri, &db_name, &collection_name)
+    let db_service = DbService::new(&mongo_uri, &db_name)
         .await
         .expect("Failed to connect to MongoDB");
 
@@ -58,15 +57,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Conditionally spawn ingestion task
     if should_start_ingestion {
+        let db_service_clone = db_service.clone();
         tokio::spawn(async move {
             tracing::debug!("[Main] Spawning events ingestion task...");
             // Run the main ingestion pipeline which runs for fire event.
-            // if let Err(e) = start_fire_event_ingestion().await {
-            //     tracing::error!("Firms ingestion task failed: {}", e);
-            // }
+            if let Err(e) = start_fire_event_ingestion(db_service_clone).await {
+                tracing::error!("Firms ingestion task failed: {}", e);
+            }
 
             // Periodic live API fetching (runs continuously after initial ingestion)
-            let mut _fire_interval = interval(Duration::from_secs(5));
+            // let mut _fire_interval = interval(Duration::from_secs(5));
             // loop {
             //     fire_interval.tick().await;
             //     match fetch_new_firms_data_from_api().await {
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // }
 
             // Periodic live API fetching (runs continuously after initial ingestion)
-            let mut _earthquake_interval = interval(Duration::from_secs(5));
+            // let mut _earthquake_interval = interval(Duration::from_secs(5));
             // Or different interval
             // loop {
             // earthquake_interval.tick().await;
@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/fire_events", get(handlers::fire::get_fire_events))
-        .route("/fire_reports", post(handlers::fire::add_fire_report))
+        .route("/mflix", get(handlers::fire::return_mflix))
         .route(
             "/embeddings",
             post(handlers::ai::generate_embedding_handler),

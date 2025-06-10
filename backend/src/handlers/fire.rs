@@ -1,29 +1,57 @@
 // handlers/fire.rs
-use crate::ingest::fire_event::FireReport;
-use crate::models::firms::Firms;
+use crate::models::firms::{FireEvent};
 use crate::services::db::DbService;
 use crate::services::firms;
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use mongodb::bson::doc;
 
-pub async fn get_fire_events() -> Result<Json<Vec<Firms>>, StatusCode> {
-    match firms::fetch_firms_data().await {
-        Ok(events) => Ok(Json(events)),
+
+pub async fn get_fire_events(State(db_service): State<DbService>) -> impl IntoResponse {
+    let collection = match db_service.handle_collection("fire_event").await {
+        Ok(coll) => coll.clone_with_type::<FireEvent>(),
+        Err(e) => {
+            eprintln!("Error accessing collection: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Collection error").into_response();
+        }
+    };
+    match firms::fetch_firms_data(collection).await {
+        Ok(events) => Json(events).into_response(),
         Err(e) => {
             eprintln!("Error fetching FIRMS data: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Error fetching data: {}", e),
+            )
+                .into_response()
         }
     }
 }
 
-pub async fn add_fire_report(
-    State(db_service): State<DbService>,
-    Json(fire_report): Json<FireReport>,
-) -> Result<StatusCode, StatusCode> {
-    match db_service.insert_fire_report(fire_report).await {
-        Ok(_) => Ok(StatusCode::CREATED),
+pub async fn return_mflix(State(db_service): State<DbService>) -> impl IntoResponse {
+    match db_service.handle_collection("movies").await {
+        Ok(collection) => {
+            match collection
+                .find_one(doc! { "title": "The Princess Blade" })
+                .await
+            {
+                Ok(Some(document)) => {
+                    // Convert BSON Document to JSON
+                    match serde_json::to_value(document) {
+                        Ok(json_value) => (StatusCode::OK, Json(json_value)).into_response(),
+                        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error")
+                            .into_response(),
+                    }
+                }
+                Ok(None) => (StatusCode::NOT_FOUND, "Movie not found").into_response(),
+                Err(err) => {
+                    eprintln!("MongoDB query error: {}", err);
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+                }
+            }
+        }
         Err(e) => {
-            eprintln!("Error inserting fire report: {}", e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
+            eprintln!("Error accessing collection: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "Collection error").into_response()
         }
     }
 }

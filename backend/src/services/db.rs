@@ -1,30 +1,25 @@
-use crate::ingest::fire_event::FireReport;
-use mongodb::{Client, Collection};
+use mongodb::{bson::Document, Client, Collection, Database};
 
 #[derive(Debug, Clone)]
 pub struct DbService {
     client: Client,
-    collection: Collection<FireReport>,
+    db: Database,
 }
 
 impl DbService {
-    pub async fn new(
-        uri: &str,
-        db_name: &str,
-        collection_name: &str,
-    ) -> Result<Self, mongodb::error::Error> {
+    /// Connect to a Database
+    pub async fn new(uri: &str, db_name: &str) -> Result<Self, mongodb::error::Error> {
         let client = Client::with_uri_str(uri).await?;
-        let collection = client
-            .database(db_name)
-            .collection::<FireReport>(collection_name);
-        Ok(Self { client, collection })
+        let db = client.database(db_name);
+        Ok(Self { client, db })
     }
 
-    pub async fn insert_fire_report(
+    /// Handle a collection, given the collection name, it returns access to the collection
+    pub async fn handle_collection(
         &self,
-        report: FireReport,
-    ) -> Result<(), mongodb::error::Error> {
-        self.collection.insert_one(report).await?;
-        Ok(())
+        collection_str: &str,
+    ) -> Result<Collection<Document>, mongodb::error::Error> {
+        let collection: Collection<Document> = self.db.collection(&collection_str);
+        Ok(collection)
     }
 }
