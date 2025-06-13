@@ -1,5 +1,8 @@
 use crate::services::ai::AiServiceClient;
+use anyhow::Error;
+use async_trait::async_trait;
 
+#[async_trait]
 pub trait Event {
-    fn get_embeddings(&self, ai_service: AiServiceClient) -> Result<Vec<f32>, tonic::Status>;
+    async fn get_embeddings(&self, ai_service: AiServiceClient) -> Result<Vec<f64>, Error>;
 }

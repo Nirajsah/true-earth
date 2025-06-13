@@ -1,4 +1,4 @@
 // Re-export the generated protobuf code
-pub mod greeter {
-    tonic::include_proto!("greeter");
+pub mod llm_service {
+    tonic::include_proto!("llm_service");
 }

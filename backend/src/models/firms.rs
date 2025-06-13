@@ -69,53 +69,55 @@ impl Firms {
             frp: FireRadiativePower(self.frp as f32),
             daynight: DayNight::from_str(&self.daynight).ok()?,
             country: None, // This will be set later
+            text: None, // Optional text description for the event
+            text_embedding: None, // Optional text embedding for the event
         })
     }
 }
 
 /// Represents the geographic latitude in decimal degrees.
 /// Positive values indicate northern hemisphere.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Latitude(pub f32);
 
 /// Represents the geographic longitude in decimal degrees.
 /// Positive values indicate eastern hemisphere.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Longitude(pub f32);
 
 /// Brightness temperature in Kelvin (T4 band ~4µm), used to detect fire hotspots.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct BrightnessTemperature(pub f32);
 
 /// Brightness temperature from T31 band (11µm), used for background reference.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ReferenceTemperature(pub f32);
 
 /// UTC date of the fire detection (YYYYMMDD as u32 for compactness).
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AcquisitionDate(pub u32);
 
 /// UTC time of fire detection in HHMM format (e.g., 1350 = 13:50).
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AcquisitionTime(pub u8);
 
 /// Confidence level (0–100) for MODIS, or mapped (e.g., 0=low, 50=nominal, 100=high) for VIIRS.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FireConfidence(pub u8);
 
 /// Radiative power of the fire in megawatts (MW), estimating fire intensity.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FireRadiativePower(pub f32);
 
 /// 'D' for Day, 'N' for Night — stored as char in MongoDB.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum DayNight {
     Day,
     Night,
 }
 
 /// Indicates the satellite source of detection.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Satellite {
     Terra,
     Aqua,
@@ -187,7 +189,7 @@ value!(ReferenceTemperature, f32);
 value!(FireConfidence, u8);
 
 /// Main structure representing a detected fire event from satellite imagery.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FireEvent {
     pub latitude: Latitude,
     pub longitude: Longitude,
@@ -200,6 +202,8 @@ pub struct FireEvent {
     pub frp: FireRadiativePower,
     pub daynight: DayNight,
     pub country: Option<String>,
+    pub text: Option<String>, // Optional text description for the event
+    pub text_embedding: Option<Vec<f32>>,
 }
 
 impl FireEvent {
@@ -234,6 +238,8 @@ impl FireEvent {
             frp,
             daynight,
             country,
+            text: None,
+            text_embedding: None,
         })
     }
 
@@ -259,13 +265,19 @@ impl FireEvent {
             self.country = None; // If the RTree failed to load
         }
     }
-}
 
-impl Event for FireEvent {
-    fn get_embeddings(
-        &self,
-        ai_service: crate::services::ai::AiServiceClient,
-    ) -> Result<Vec<f32>, tonic::Status> {
-        todo!()
+    pub fn to_text(&mut self) -> String {
+        let text = format!(
+            "Fire detected at {}°N, {}°E on {} at {}. Confidence: {}, Satellite: {:?}, Day/Night: {:?}",
+            self.latitude.value(),
+            self.longitude.value(),
+            self.date.0,
+            self.time.0,
+            self.confidence.value(),
+            self.satellite,
+            self.daynight
+        );
+        self.text = Some(text.clone()); // Store the text in the struct
+        text
     }
 }

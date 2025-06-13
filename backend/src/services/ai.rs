@@ -1,16 +1,13 @@
-use std::{error::Error, fs::File};
+use std::error::Error;
 use std::time::Duration;
 use tonic::transport::Channel; // Import the Channel type for gRPC communication
 
-use crate::models::firms::{Firms, FireEvent};
-use crate::proto::greeter::{
-    greeter_client::GreeterClient, // Import the generated client stub struct
-    HelloRequest,                 // Import the generated request message struct
-};
+use crate::proto::llm_service::{embedding_service_client::EmbeddingServiceClient, prompt_service_client::PromptServiceClient, BatchEmbeddingRequest, EmbeddingRequest, EmbeddingResult, PromptRequest, PromptResponse};
 
 #[derive(Clone)] // Clone trait is often needed for Axum/shared state
 pub struct AiServiceClient {
-    client: GreeterClient<Channel>, // This would eventually be your EmbeddingServiceClient
+    embedding_client: EmbeddingServiceClient<Channel>, 
+    chat_client: PromptServiceClient<Channel>, 
 }
 
 impl AiServiceClient {
@@ -22,43 +19,30 @@ impl AiServiceClient {
             .connect()
             .await?;
 
-        let client = GreeterClient::new(channel);
+        let embedding_client = EmbeddingServiceClient::new(channel.clone());
+        let chat_client = PromptServiceClient::new(channel); // Uncomment if you have a chat service
 
-        Ok(AiServiceClient { client })
+        Ok(AiServiceClient { embedding_client, chat_client })
     }
 
-    // Example method to call the gRPC service
-    pub async fn say_hello(&mut self, name: String) -> Result<String, tonic::Status> {
-        let request = tonic::Request::new(HelloRequest { name });
-        let response = self.client.say_hello(request).await?;
-        Ok(response.into_inner().message)
+    /// Method to call the gRPC service for generating embeddings for a single text input.
+    pub async fn gen_embedding(&mut self, text: String) -> Result<Vec<f32>, tonic::Status> {
+        let request = tonic::Request::new(EmbeddingRequest { text });
+        let response = self.embedding_client.get_embedding(request).await?;
+        Ok(response.into_inner().values)
     }
 
-    pub async fn get_embedding(&mut self, _text: String) -> Result<Vec<f32>, tonic::Status> {
-        // This is where you'd call your actual EmbeddingService client
-        // e.g., let request = tonic::Request::new(EmbeddingRequest { text });
-        // let response = self.client.generate_embedding(request).await?.into_inner();
-        // Ok(response.embedding_vector)
-        let simulated_embedding = vec![1.0, 2.0, 3.0, 4.0, 5.0]; // Replace with actual embedding
-        Ok(simulated_embedding)
+    /// Method to call the gRPC service for generating embeddings for a batch of text inputs.
+    pub async fn gen_batch_embeddings(&mut self, texts: Vec<String>) -> Result<Vec<EmbeddingResult>, tonic::Status> {
+        let request = tonic::Request::new(BatchEmbeddingRequest { texts });
+        let response = self.embedding_client.get_batch_embeddings(request).await?;
+        Ok(response.into_inner().embeddings)
     }
-    pub async fn read_file(&mut self) -> Result<Vec<FireEvent>, tonic::Status> {
-        // Simulate reading a file and returning its content
-        // In a real scenario, you would read the file from disk or another source
-        let file = File::open("data.csv")?;
-        let mut rdr = csv::Reader::from_reader(file);
-        let mut count = 0;
-        let mut events: Vec<FireEvent> = Vec::new();
 
-        for result in rdr.deserialize() {
-            let record: Firms = result.map_err(|e| tonic::Status::internal(format!("Failed to deserialize record: {}", e)))?;
+    /// Method to call the gRPC service for generating a chat response based on a prompt.
+    pub async fn send_prompt(&mut self, prompt: PromptRequest) -> Result<tonic::Streaming<PromptResponse>, tonic::Status> {
+    let response = self.chat_client.generate_prompt(prompt).await?;
+    Ok(response.into_inner())
+}
 
-            if let Some(event) = record.to_fire_event() {
-                count += 1;
-                events.push(event);
-            }
-        }
-        tracing::debug!("Read {} events from file", count);
-        Ok(events)
-    }
 }

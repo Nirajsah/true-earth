@@ -39,9 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_url = std::env::var("GRPC_URI")?;
 
     // Initialize gRPC Client
-    // let ai_client: AiServiceClient = AiServiceClient::new(&grpc_url)
-    //     .await
-    //     .expect("Failed to connect to grpcClient");
+    let ai_client: AiServiceClient = AiServiceClient::new(&grpc_url)
+        .await
+        .expect("Failed to connect to grpcClient");
 
     // Initialize MongoDB Client
     let db_service = DbService::new(&mongo_uri, &db_name)
@@ -58,10 +58,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Conditionally spawn ingestion task
     if should_start_ingestion {
         let db_service_clone = db_service.clone();
+        let ai_client_clone = ai_client.clone();
         tokio::spawn(async move {
             tracing::debug!("[Main] Spawning events ingestion task...");
             // Run the main ingestion pipeline which runs for fire event.
-            if let Err(e) = start_fire_event_ingestion(db_service_clone).await {
+            if let Err(e) = start_fire_event_ingestion(db_service_clone, ai_client_clone, 1000).await {
                 tracing::error!("Firms ingestion task failed: {}", e);
             }
 
@@ -128,14 +129,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/fire_events", get(handlers::fire::get_fire_events))
-        .route("/mflix", get(handlers::fire::return_mflix))
         .route(
-            "/embeddings",
-            post(handlers::ai::generate_embedding_handler),
+            "/api/chat",
+            post(handlers::ai::chat_with_ai_handler),
         )
         .route("/em_dat", get(handlers::em_dat::get_em_dat_events))
         .layer(cors)
-        // .layer(axum::Extension(ai_client)) // Adding gRPC client to app state
+        .layer(axum::Extension(ai_client)) // Adding gRPC client to app state
         .with_state(db_service);
 
     // Run our app

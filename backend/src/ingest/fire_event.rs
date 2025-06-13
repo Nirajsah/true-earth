@@ -2,79 +2,14 @@
 
 use std::fs::File;
 
-use crate::{
-    models::firms::{FireEvent, Firms},
-    services::db::DbService,
-};
-use mongodb::{bson::Document, Collection};
-use serde::{Deserialize, Serialize};
-
-/// Estimated area in hectares (ha)
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct AreaHa(pub f32);
-
-/// Type of land use damaged
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum LandUseType {
-    Forest,
-    Cropland,
-    Grassland,
-    Wetland,
-    Urban,
-    Other(String), // fallback for unknown tags
-}
-
-/// Estimated land damage from fire
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DamageImpact {
-    pub total_area_burned: AreaHa,      // total area affected
-    pub dominant_land_use: LandUseType, // most affected type
-    pub forest_loss: Option<AreaHa>,    // forest-specific loss
-    pub cropland_loss: Option<AreaHa>,  // cropland-specific loss
-}
-
-/// Climate-related emission estimates
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClimateImpact {
-    pub co2_emitted_kg: Option<f32>,  // carbon dioxide in kg
-    pub ch4_emitted_kg: Option<f32>,  // methane in kg
-    pub nox_emitted_kg: Option<f32>,  // NOx in kg
-    pub pm25_emitted_kg: Option<f32>, // fine particulate matter
-    pub aqi_change: Option<i32>,      // estimated local AQI increase
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ReportMeta {
-    /// Source of the fire data (e.g., "FIRMS", "MODIS", "VIIRS")
-    pub data_source: String,
-    /// Timestamp when the fire event was detected (Unix epoch ms)
-    pub event_timestamp: u64,
-    /// Timestamp when this report was created/processed (Unix epoch ms)
-    pub processed_timestamp: u64,
-    /// Version of your data pipeline or processing script
-    pub pipeline_version: String,
-    /// Confidence threshold used for filtering the fire event
-    pub confidence_threshold: u8,
-    /// Additional notes or remarks (optional)
-    pub notes: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Embeddings {
-    plot_embeddings: Vec<u8>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FireReport {
-    fire_event: FireEvent,
-    climate_impact: ClimateImpact,
-    damage_impact: DamageImpact,
-    embeddings: Embeddings,
-}
+use crate::{models::firms::{FireEvent, Firms}, proto::llm_service::{BatchEmbeddingRequest, EmbeddingResult}};
+use mongodb::Collection;
 
 /// Function to process fire events from a CSV file
 pub async fn process_fire_events(
     fire_event_collection: Collection<FireEvent>,
+    mut ai_client: crate::services::ai::AiServiceClient,
+    BATCH_SIZE: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open("data.csv")?;
     let mut rdr = csv::Reader::from_reader(file);
@@ -88,7 +23,49 @@ pub async fn process_fire_events(
             event.set_country();
             fire_events.push(event);
         }
+
     }
+
+    println!("Finished reading {} fire events from CSV.", fire_events.len());
+
+    let mut embedded_fire_events: Vec<FireEvent> = Vec::with_capacity(fire_events.len());
+
+    for chunk in fire_events.chunks_mut(BATCH_SIZE) {
+        let texts: Vec<String> = chunk.iter_mut().map(|event| event.to_text()).collect();
+
+        println!("Sending batch of {} texts for embedding...", texts.len());
+
+        let request =  texts;
+
+        // Call the gRPC service for batch embeddings
+        let response: Vec<EmbeddingResult> = ai_client.gen_batch_embeddings(request).await?;
+
+        if response.len() != chunk.len() {
+            eprintln!(
+                "Warning: Mismatch in batch embedding response count. Expected {}, got {}",
+                chunk.len(), response.len()
+            );
+            // Decide how to handle this: panic, return error, or skip this chunk.
+            // For now, we'll continue but log a warning.
+        }
+
+        // Associate embeddings back to the FireEvent objects
+        for (i, mut event) in chunk.to_vec().into_iter().enumerate() {
+            if i < response.len() {
+                let embedding_proto: EmbeddingResult = response[i].clone();
+                event.text_embedding = Some(embedding_proto.values);
+            } else {
+                // If a mismatch occurred, this event might not have an embedding.
+                // It will remain `None`. You might want to handle this explicitly.
+                event.text_embedding = None;
+                eprintln!("Error: No embedding found for event at index {} in batch.", i);
+            }
+            embedded_fire_events.push(event);
+        }
+
+        println!("Processed {} embeddings in current batch.", chunk.len());
+    }
+    println!("All embeddings processed. Total embedded events: {}.", embedded_fire_events.len());
 
     fire_event_collection.insert_many(fire_events).await?;
     Ok(())
