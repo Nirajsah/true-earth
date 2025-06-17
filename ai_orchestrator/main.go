@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/genai"
 	"google.golang.org/grpc"
@@ -305,9 +307,16 @@ func main() {
 
 func GeminiClient() (*genai.Client, error) {
 	ctx := context.Background()
+	if err := godotenv.Load(); err != nil {
+		log.Println("no .env file found")
+	}
+	GEMINI_KEY := os.Getenv("GEMINI_API_KEY")
+	if GEMINI_KEY == "" {
+		log.Fatal("set your 'ATLAS_CONNECTION_STRING' environment variable.")
+	}
 
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  "AIzaSyAcUtwD4xInWf62JPPOlGTPrtgxHSLC2KE",
+		APIKey:  GEMINI_KEY,
 		Backend: genai.BackendGeminiAPI,
 	})
 
