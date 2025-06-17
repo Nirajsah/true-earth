@@ -3,34 +3,85 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/genai"
 )
 
-type Role string
+type Memory struct {
+	chatHistoryCollection mongo.Collection
+}
 
-const (
-	USER  Role = "user"
-	AGENT Role = "agent"
-)
+// NewMemory initializes a new Memory instance.
+func NewMemory(collection mongo.Collection) *Memory {
+	return &Memory{
+		// If using MongoDB, you would pass the *mongo.Collection here
+		chatHistoryCollection: collection,
+	}
+}
 
-// Message represents a single message in the conversation
-type Message struct {
-	UserID    string    `bson:"user_id" json:"user_id"`     // Redundant in MongoDB array, but useful if needed
-	Role      Role      `bson:"role" json:"role"`           // "user" or "agent"
-	Content   string    `bson:"content" json:"content"`     // Actual message text
+// for memory i would need, add to memory(a conv with roles), get from memory(conv with roles)
+func (m *Memory) Push(userID string, turn ConversationTurn) error {
+	ctx := context.Background()
+	filter := bson.M{"user_id": userID}
+	update := bson.M{
+		"$push": bson.M{
+			"messages": turn,
+		},
+	}
+	opts := options.Update().SetUpsert(true)
+	_, err := m.chatHistoryCollection.UpdateOne(ctx, filter, update, opts)
+	fmt.Printf("A new converstation is received %s", turn)
+	return err
+}
+
+// Pull retrieves the user's chat history and converts it to Gemini Content.
+func (m *Memory) Pull(userID string, limit uint16) ([]*genai.Content, error) {
+	ctx := context.Background()
+
+	var history ConversationHistory
+	// var genaiContents []*genai.Content
+	genaiContents := make([]*genai.Content, 0)
+
+	filter := bson.M{"user_id": userID}
+	options := options.FindOne().SetProjection(bson.M{
+		"messages": bson.M{
+			"$slice": -int(limit), // get the last N turns
+		},
+	})
+	err := m.chatHistoryCollection.FindOne(ctx, filter, options).Decode(&history)
+
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			// No conversation found — OK
+			return []*genai.Content{}, nil
+		}
+		// Real DB error
+		return nil, err
+	}
+
+	for _, turn := range history.Messages {
+		if turn.Query != "" {
+			genaiContents = append(genaiContents, genai.NewContentFromText(turn.Query, genai.RoleUser))
+		}
+		if turn.Response != "" {
+			genaiContents = append(genaiContents, genai.NewContentFromText(turn.Response, genai.RoleModel))
+		}
+	}
+
+	return genaiContents, nil
 }
 
 // Agent represents a conversational agent (LLM wrapper with memory and instructions)
 type Agent struct {
-	Name         string       `json:"name"`         // Name of the agent
-	Description  string       `json:"description"`  // Description of agent's purpose
-	Capabilities []string     `json:"capabilities"` // List of skills or supported actions
-	SysInstruction  string       `json:"system_instruction"`  // System-level instructions for prompt building
-	ResInstruction  string       `json:"response_instruction"` // Instructions for generating responses
+	Name           string   `json:"name"`                 // Name of the agent
+	Description    string   `json:"description"`          // Description of agent's purpose
+	Capabilities   []string `json:"capabilities"`         // List of skills or supported actions
+	SysInstruction string   `json:"system_instruction"`   // System-level instructions for prompt building
+	ResInstruction string   `json:"response_instruction"` // Instructions for generating responses
+	Memory         *Memory  `json:"agent_memory"`
 }
 
 type ConversationTurn struct {
@@ -43,19 +94,15 @@ type ConversationHistory struct {
 	Messages []ConversationTurn `bson:"messages" json:"messages"`
 }
 
-// MongoDB-backed chat history service
-var chatCollection *mongo.Collection
-
-
-
 // NewAgent creates a new agent instance
-func NewAgent(name, description string) *Agent {
+func NewAgent(name, description string, mongoCollection mongo.Collection) *Agent {
 	return &Agent{
-		Name:         name,
-		Description:  description,
-		Capabilities: []string{},
-		SysInstruction:  "",
-		ResInstruction:  "",
+		Name:           name,
+		Description:    description,
+		Capabilities:   []string{},
+		SysInstruction: "",
+		ResInstruction: "",
+		Memory:         NewMemory(mongoCollection),
 	}
 }
 
@@ -71,75 +118,61 @@ func (a *Agent) AddResInstruction(instruction string) {
 	a.ResInstruction = instruction
 }
 
-func ConstructionUserMessage(user_id string, role Role, content string) Message {
-	msg := Message{
-		UserID:    user_id,
-		Content:   content,
-	}
-	return msg
-}
+func BuildPrompt(
+	sysInstruction string,
+	resInstruction string,
+	retrievedContext string,
+	history []*genai.Content, // Now explicitly accepting conversation history
+	newQuestion string,
+) []*genai.Content {
 
-func ConstructionAgentMessage(role Role, content string) Message {
-	msg := Message{
-		UserID:    "",
-		Content:   content,
-	}
-	return msg
-}
+	// 1. The System Instruction (RoleModel)
+	// This sets the foundational rules and persona for Leafy. It typically comes first.
+	sys := genai.NewContentFromText(sysInstruction, genai.RoleModel)
 
-func (a *Agent) AddConversation(userID string, userMessage Message, agentMessage Message) error {
-	// Save both messages in one atomic MongoDB update
-	return SaveTurnToMongo(userID, ConversationTurn{
-		Query:    userMessage.Content,
-		Response: agentMessage.Content,
-	})
-}
+	// 2. The Current Turn's User Content (Context, Response Instructions, New Question)
+	// This block provides all the immediate information Leafy needs to craft its current response.
+	userPromptContent := fmt.Sprintf(`
+**--- Information for Leafy's Current Response ---**
 
-func SaveTurnToMongo(userID string, turn ConversationTurn) error {
-	ctx := context.Background()
-	filter := bson.M{"user_id": userID}
-	update := bson.M{
-		"$push": bson.M{
-			"messages": turn,
-		},
-	}
-	opts := options.Update().SetUpsert(true)
-	_, err := chatCollection.UpdateOne(ctx, filter, update, opts)
-	return err
-}
+### 🔍 Retrieved Knowledge Base Context:
+This section contains highly relevant data and facts retrieved from Leafy's specialized databases based on the current user query and conversation history. Utilize this information thoroughly to answer the user's question accurately and comprehensively.
+%s
 
-func GetRecentTurns(userID string, limit int) ([]ConversationTurn, error) {
-	ctx := context.Background()
-	var history ConversationHistory
+---
 
-	filter := bson.M{"user_id": userID}
-	projection := bson.M{"messages": bson.M{"$slice": -limit}}
+### 📝 Model Response Guidelines:
+These are Leafy's specific instructions for crafting the current response. Adhere strictly to these guidelines to maintain consistency in tone, format, and content delivery. Ensure your answer is friendly, clear, and focused on climate/environmental topics, avoiding raw coordinates and summarizing data by country, as outlined in Leafy's core system instructions.
+%s
 
-	err := chatCollection.FindOne(ctx, filter, options.FindOne().SetProjection(projection)).Decode(&history)
-	if err != nil {
-		return nil, err
-	}
+---
 
-	return history.Messages, nil
-}
+### ❓ User's Current Question:
+This is the latest question or prompt from the user. Read it carefully to understand the user's intent and provide a helpful, relevant answer based on all the information provided above.
+%s
 
-func BuildPrompt(sysInstruction string, resInstruction string, messages []ConversationTurn, retrievedContext string, newQuestion string) string {
-	var sb strings.Builder
+**--- End of Input for Current Turn ---**
+`,
+		retrievedContext,
+		resInstruction,
+		newQuestion,
+	)
 
-	sb.WriteString(sysInstruction)
-	sb.WriteString("\n\nChat History:\n")
-	for _, msg := range messages {
-		sb.WriteString(fmt.Sprintf("User: %s\n", msg.Query))
-		sb.WriteString(fmt.Sprintf("Agent: %s\n", msg.Response))
-	}
+	// Create the genai.Content object for the current user turn.
+	currentUserContent := genai.NewContentFromText(userPromptContent, genai.RoleUser)
 
-	sb.WriteString("\nContext:\n")
-	sb.WriteString(retrievedContext)
+	// 3. Assemble the Final Prompt Sequence:
+	// The order is crucial: System Instruction -> History -> Current User's Content.
+	// This mimics a natural conversation flow that models are trained on.
 
-	sb.WriteString("\n\nResponse Instructions:\n")
-	sb.WriteString(resInstruction)
-	sb.WriteString("\n\nQuestion:\n")
-	sb.WriteString(newQuestion)
+	// Start with the system instruction.
+	finalPrompt := []*genai.Content{sys}
 
-	return sb.String()
+	// Append the conversation history. The '...' unpacks the slice elements.
+	finalPrompt = append(finalPrompt, history...)
+
+	// Append the current user's detailed content.
+	finalPrompt = append(finalPrompt, currentUserContent)
+
+	return finalPrompt
 }

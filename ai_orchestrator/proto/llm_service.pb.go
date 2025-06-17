@@ -206,6 +206,7 @@ func (x *EmbeddingResponse) GetEmbeddings() []*EmbeddingResult {
 type PromptRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	SessionId     string                 `protobuf:"bytes,2,opt,name=sessionId,proto3" json:"sessionId,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -243,6 +244,13 @@ func (*PromptRequest) Descriptor() ([]byte, []int) {
 func (x *PromptRequest) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *PromptRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
 	}
 	return ""
 }
@@ -306,9 +314,10 @@ const file_llm_service_proto_rawDesc = "" +
 	"\x11EmbeddingResponse\x12<\n" +
 	"\n" +
 	"embeddings\x18\x01 \x03(\v2\x1c.llm_service.EmbeddingResultR\n" +
-	"embeddings\"#\n" +
+	"embeddings\"A\n" +
 	"\rPromptRequest\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\"$\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1c\n" +
+	"\tsessionId\x18\x02 \x01(\tR\tsessionId\"$\n" +
 	"\x0ePromptResponse\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text2\xb9\x01\n" +
 	"\x10EmbeddingService\x12K\n" +
