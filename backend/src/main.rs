@@ -1,15 +1,17 @@
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use dotenvy::dotenv;
-use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName};
 use services::ai::AiServiceClient;
-use std::{net::SocketAddr, time::Duration};
-use tokio::{net::TcpListener, time::interval};
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use utils::event_ingestion::{start_earthquake_event_ingestion, start_fire_event_ingestion};
+use utils::event_ingestion::{
+    start_earthquake_event_ingestion, start_em_dat_ingestion, start_fire_event_ingestion,
+};
 
 mod handlers;
 mod ingest;
@@ -20,11 +22,14 @@ mod utils;
 use crate::handlers::health::health_check;
 use crate::services::db::DbService;
 
+const BATCH_SIZE: usize = 100;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Server starting up...");
 
     dotenv().ok();
+
     // Initialize tracing for logging
     tracing_subscriber::registry()
         .with(
@@ -56,84 +61,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .any(|arg| arg == "--start-ingestion" || arg == "-i");
 
     // Conditionally spawn ingestion task
+
     if should_start_ingestion {
         let db_service_clone = db_service.clone();
         let ai_client_clone = ai_client.clone();
         tokio::spawn(async move {
             tracing::debug!("[Main] Spawning events ingestion task...");
             // Run the main ingestion pipeline which runs for fire event.
-            if let Err(e) = start_fire_event_ingestion(db_service_clone, ai_client_clone, 1000).await {
+            if let Err(e) =
+                start_fire_event_ingestion(db_service_clone, ai_client_clone, BATCH_SIZE).await
+            {
                 tracing::error!("Firms ingestion task failed: {}", e);
             }
-
-            // Periodic live API fetching (runs continuously after initial ingestion)
-            // let mut _fire_interval = interval(Duration::from_secs(5));
-            // loop {
-            //     fire_interval.tick().await;
-            //     match fetch_new_firms_data_from_api().await {
-            //         Ok(new_fire_events) => {
-            //             if let Err(e) = start_fire_event_ingestion(
-            //                 fire_ingestion_db_client_clone.clone(),
-            //                 fire_ingestion_ai_client_clone.clone(),
-            //                 new_fire_events,
-            //             )
-            //             .await
-            //             {
-            //                 error!("Periodic fire event ingestion failed: {}", e);
-            //             }
-            //         }
-            //         Err(e) => error!("Failed to fetch new fire events from API: {}", e),
-            //     }
-            // }
         });
+        let db_service_clone = db_service.clone();
+        let ai_client_clone = ai_client.clone();
         tokio::spawn(async move {
             // Run the main ingestion pipeline which runs for earthquake event.
-            // if let Err(e) = start_earthquake_event_ingestion().await {
-            //     tracing::error!("EarthQuake ingestion task failed: {}", e);
-            // }
-
-            // Periodic live API fetching (runs continuously after initial ingestion)
-            // let mut _earthquake_interval = interval(Duration::from_secs(5));
-            // Or different interval
-            // loop {
-            // earthquake_interval.tick().await;
-            // match fetch_new_earthquake_data_from_api().await {
-            //     Ok(new_earthquake_events) => {
-            //         if let Err(e) = start_earthquake_event_ingestion(
-            //             // earthquake_ingestion_db_client_clone.clone(),
-            //             // earthquake_ingestion_ai_client_clone.clone(),
-            //             // new_earthquake_events
-            //         )
-            //         .await
-            //         {
-            //             tracing::error!("Periodic earthquake event ingestion failed: {}", e);
-            //         }
-            //     }
-            //     Err(e) => {
-            //         tracing::error!("Failed to fetch new earthquake events from API: {}", e)
-            //     }
-            // }
-            // }
+            if let Err(e) =
+                start_earthquake_event_ingestion(db_service_clone, ai_client_clone, BATCH_SIZE)
+                    .await
+            {
+                tracing::error!("EarthQuake ingestion task failed: {}", e);
+            }
+        });
+        let db_service_clone = db_service.clone();
+        let ai_client_clone = ai_client.clone();
+        tokio::spawn(async move {
+            // Run the main ingestion pipeline which runs for EM-DAT event.
+            if let Err(e) =
+                start_em_dat_ingestion(db_service_clone, ai_client_clone, BATCH_SIZE).await
+            {
+                tracing::error!("EM-DAT ingestion task failed: {}", e);
+            }
         });
         tracing::debug!("[Main] Events ingestion task completed.");
     } else {
-        tracing::debug!("[Main] Ingestion pipeline is SKIPPED. To enable, run with `--start-ingestion` or `-i`.");
+        tracing::debug!(
+            "[Main] Ingestion pipeline is SKIPPED. To enable, run with `--start-ingestion` or `-i`."
+        );
     }
 
     let cors = CorsLayer::new()
         .allow_methods(Any)
-        .allow_headers(vec![AUTHORIZATION, ACCEPT, CONTENT_TYPE])
+        .allow_headers(vec![
+            AUTHORIZATION,
+            ACCEPT,
+            CONTENT_TYPE,
+            HeaderName::from_static("x-session-id"),
+        ])
         .allow_origin(Any);
 
     // Build our application with a route
     let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/fire_events", get(handlers::fire::get_fire_events))
+        .route("/api/health", get(health_check))
+        .route("/api/fire_events", get(handlers::fire::get_fire_events))
         .route(
-            "/api/chat",
-            post(handlers::ai::chat_with_ai_handler),
+            "/api/quake_events",
+            get(handlers::earthquake::get_quake_events),
         )
-        .route("/em_dat", get(handlers::em_dat::get_em_dat_events))
+        .route("/api/chat", post(handlers::ai::chat_with_ai_handler))
+        .route("/api/get_chat", get(handlers::ai::get_chat_history))
         .layer(cors)
         .layer(axum::Extension(ai_client)) // Adding gRPC client to app state
         .with_state(db_service);

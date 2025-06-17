@@ -2,15 +2,13 @@
 
 use geo::BoundingRect;
 use geo::Contains;
+use rstar::AABB;
 use rstar::Envelope;
 use rstar::RTreeObject;
-use rstar::AABB;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 use crate::ingest::utils::ALL_COUNTRY_BOUNDARIES;
-
-use super::event_trait::Event;
 
 /// Represents a fire detection from the FIRMS dataset.
 /// This struct is used to deserialize the JSON data from FIRMS.
@@ -63,13 +61,13 @@ impl Firms {
             brightness: BrightnessTemperature(self.brightness as f32),
             reference_temp: ReferenceTemperature(self.bright_t31 as f32),
             date: AcquisitionDate(self.acq_date.replace("-", "").parse::<u32>().ok()?),
-            time: AcquisitionTime(self.acq_time.parse::<u8>().ok()?),
+            time: AcquisitionTime(self.acq_time.parse::<u16>().ok()?),
             satellite: Satellite::from_str(&self.satellite).ok()?,
             confidence,
             frp: FireRadiativePower(self.frp as f32),
             daynight: DayNight::from_str(&self.daynight).ok()?,
-            country: None, // This will be set later
-            text: None, // Optional text description for the event
+            country: None,        // This will be set later
+            text: None,           // Optional text description for the event
             text_embedding: None, // Optional text embedding for the event
         })
     }
@@ -99,7 +97,7 @@ pub struct AcquisitionDate(pub u32);
 
 /// UTC time of fire detection in HHMM format (e.g., 1350 = 13:50).
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct AcquisitionTime(pub u8);
+pub struct AcquisitionTime(pub u16);
 
 /// Confidence level (0–100) for MODIS, or mapped (e.g., 0=low, 50=nominal, 100=high) for VIIRS.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -187,6 +185,7 @@ value!(Latitude, f32);
 value!(Longitude, f32);
 value!(ReferenceTemperature, f32);
 value!(FireConfidence, u8);
+value!(FireRadiativePower, f32);
 
 /// Main structure representing a detected fire event from satellite imagery.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -207,42 +206,6 @@ pub struct FireEvent {
 }
 
 impl FireEvent {
-    pub fn try_parse(raw: &serde_json::Value) -> Option<Self> {
-        // only construct FireEvent when confidence > 50
-        let confidence = FireConfidence::new(raw.get("confidence")?.as_u64()? as u8)?;
-
-        let latitude = Latitude::new(raw.get("latitude")?.as_f64()? as f32)?;
-        let longitude = Longitude::new(raw.get("longitude")?.as_f64()? as f32)?;
-        let brightness = BrightnessTemperature(raw.get("brightness")?.as_f64()? as f32);
-        let reference_temp = ReferenceTemperature(raw.get("bright_t31")?.as_f64()? as f32);
-        let satellite = Satellite::from_str(raw.get("satellite")?.as_str()?).unwrap(); // not supposed to panic
-        let daynight = DayNight::from_str(raw.get("daynight")?.as_str()?).unwrap(); // not supposed to panic
-        let frp = FireRadiativePower(raw.get("frp")?.as_f64()? as f32);
-
-        let date_str = raw.get("acq_date")?.as_str()?;
-        let date = AcquisitionDate(date_str.replace("-", "").parse::<u32>().ok()?);
-
-        let time_str = raw.get("acq_time")?.as_str()?;
-        let time = AcquisitionTime(time_str.parse::<u8>().ok()?);
-        let country = None; // This will be set later
-
-        Some(Self {
-            latitude,
-            longitude,
-            brightness,
-            reference_temp,
-            date,
-            time,
-            satellite,
-            confidence,
-            frp,
-            daynight,
-            country,
-            text: None,
-            text_embedding: None,
-        })
-    }
-
     /// Sets the country for this fire event based on the country boundaries(RTree).
     pub fn set_country(&mut self) {
         let firm_point_coords = [self.longitude.value() as f64, self.latitude.value() as f64]; // rstar expects [x, y] = [lon, lat]
@@ -267,17 +230,45 @@ impl FireEvent {
     }
 
     pub fn to_text(&mut self) -> String {
-        let text = format!(
-            "Fire detected at {}°N, {}°E on {} at {}. Confidence: {}, Satellite: {:?}, Day/Night: {:?}",
+        let mut text = format!(
+            "A fire was detected at latitude {:.4} degrees north and longitude {:.4} degrees east.",
             self.latitude.value(),
-            self.longitude.value(),
-            self.date.0,
-            self.time.0,
-            self.confidence.value(),
-            self.satellite,
-            self.daynight
+            self.longitude.value()
         );
-        self.text = Some(text.clone()); // Store the text in the struct
+
+        text.push_str(&format!(
+            " The detection occurred on {} at approximately {:04} UTC.",
+            self.date.0, self.time.0
+        ));
+
+        text.push_str(&format!(
+            " The satellite used was {:?}, and the observation was made during the {:?} time.",
+            self.satellite, self.daynight
+        ));
+
+        text.push_str(&format!(
+            " The brightness temperature of the fire was measured at {:.2} Kelvin, with a reference temperature of {:.2} Kelvin.",
+            self.brightness.value(),
+            self.reference_temp.value()
+        ));
+
+        text.push_str(&format!(
+            " The fire radiative power was estimated to be {:.2} megawatts, indicating its intensity.",
+            self.frp.value()
+        ));
+
+        text.push_str(&format!(
+            " The confidence level of this detection is {} percent, suggesting a high likelihood that this is a true active fire.",
+            self.confidence.value()
+        ));
+
+        if let Some(country) = &self.country {
+            text.push_str(&format!(" This fire event is located in {}.", country));
+        }
+
+        text.push_str(" This information is derived from satellite-based thermal anomaly detection for monitoring fires globally.");
+
+        self.text = Some(text.clone());
         text
     }
 }

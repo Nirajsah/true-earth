@@ -1,5 +1,7 @@
-// handlers/fire.rs
-use crate::{models::firms::FireEvent, services::db::DbService};
+use std::sync::Arc;
+
+// handlers/earthquake.rs
+use crate::{models::usgs::EarthquakeEvent, services::db::DbService};
 use axum::{
     Json,
     extract::{Query, State},
@@ -14,17 +16,18 @@ use mongodb::{
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
-pub struct FireEventQuery {
+pub struct EarthquakeEventQuery {
     from: Option<i32>, // YYYYMMDD
     to: Option<i32>,
 }
 
 #[axum::debug_handler]
-pub async fn get_fire_events(
+pub async fn get_quake_events(
     State(state): State<DbService>,
-    Query(query): Query<FireEventQuery>,
+    Query(query): Query<EarthquakeEventQuery>,
 ) -> impl IntoResponse {
-    let collection = match state.handle_collection("fire_event").await {
+    // Get collection
+    let collection = match state.handle_collection("quake_event").await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to get collection: {}", e);
@@ -35,7 +38,6 @@ pub async fn get_fire_events(
                 .into_response();
         }
     };
-
     let filter = if let (Some(from), Some(to)) = (query.from, query.to) {
         doc! { "date": { "$gte": from, "$lte": to } }
     } else {
@@ -51,6 +53,7 @@ pub async fn get_fire_events(
 
     // Find documents
     let mut cursor = match collection.find(filter).with_options(find_options).await {
+        // Added None for options as it's often needed
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to find documents: {}", e);
@@ -67,7 +70,7 @@ pub async fn get_fire_events(
         match result {
             Ok(doc) => {
                 // Deserialize Bson Document to strongly-typed struct
-                match bson::from_document::<FireEvent>(doc) {
+                match bson::from_document::<EarthquakeEvent>(doc) {
                     Ok(event) => events.push(event),
                     Err(e) => {
                         eprintln!("Error deserializing fire_event: {}", e);

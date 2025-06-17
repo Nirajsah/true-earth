@@ -11,10 +11,6 @@ path = "src/main.rs"
 name = "em_parse"
 path = "src/bin/em_parse.rs"
 
-[[bin]]
-name = "hello"
-path = "src/bin/hello.rs"
-
 [dependencies]
 axum = { version = "0.8.4", features = ["tokio", "macros"] }
 tokio = { version = "1", features = ["full"] }
