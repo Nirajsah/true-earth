@@ -7,7 +7,7 @@ import { Button } from './ui/button'
 import { readStreamableValue } from 'ai/rsc'
 import { cn, getOrCreateSessionId } from '@/lib/utils'
 import MarkdownRenderer from './MarkdownRenderer'
-import { chat } from '@/action/chat'
+import { chat, getChatHistory } from '@/action/chat'
 
 export type Message = {
   role: 'user' | 'assistant'
@@ -46,18 +46,7 @@ const ChatBot = ({ initialMessage = '' }: { initialMessage?: string }) => {
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/get_chat', {
-          headers: {
-            'x-session-id': sessionId,
-          },
-        })
-
-        if (!res.ok) {
-          console.error('Failed to fetch history')
-          return
-        }
-
-        const messages = await res.json()
+        const messages = await getChatHistory(sessionId)
 
         // convert to your local format: { role, content }
         const formatted: Message[] = []
@@ -234,7 +223,7 @@ const ChatBot = ({ initialMessage = '' }: { initialMessage?: string }) => {
             animate={{ height: 'auto' }}
             whileFocus={{ scale: 1.01 }}
             transition={{ duration: 0.2 }}
-            className="relative flex items-center border rounded-2xl lg:rounded-e-3xl p-2.5 gap-2 bg-background"
+            className="relative flex items-center border rounded-2xl lg:rounded-e-3xl p-1 md:p-2.5 gap-2 bg-background"
           >
             <div
               contentEditable

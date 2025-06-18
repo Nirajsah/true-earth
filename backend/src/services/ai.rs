@@ -1,10 +1,11 @@
+use reqwest::Url;
 use std::error::Error;
 use std::time::Duration;
-use tonic::transport::Channel; // Import the Channel type for gRPC communication
+use tonic::transport::{Channel, ClientTlsConfig}; // Import the Channel type for gRPC communication
 
 use crate::proto::llm_service::{
-    BatchEmbeddingRequest, EmbeddingRequest, EmbeddingResult, PromptRequest, PromptResponse,
     embedding_service_client::EmbeddingServiceClient, prompt_service_client::PromptServiceClient,
+    BatchEmbeddingRequest, EmbeddingRequest, EmbeddingResult, PromptRequest, PromptResponse,
 };
 
 #[derive(Clone)] // Clone trait is often needed for Axum/shared state
@@ -16,12 +17,20 @@ pub struct AiServiceClient {
 impl AiServiceClient {
     // Constructor to create a new instance of AiServiceClient
     pub async fn new(go_server_url: &str) -> Result<Self, Box<dyn Error>> {
+        // Parse the URL to extract the host
+        let parsed_url = Url::parse(go_server_url)?;
+        let host = parsed_url
+            .host_str()
+            .ok_or("Invalid gRPC URL: hostname missing")?;
+
+        let tls_config = ClientTlsConfig::new().domain_name(host);
+        // You can also trust system roots if using `tls-roots` feature.
+
         let channel = Channel::from_shared(go_server_url.to_string())?
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(30))
+            .tls_config(tls_config)?
+            .connect_timeout(Duration::from_secs(10))
             .connect()
             .await?;
-
         let embedding_client = EmbeddingServiceClient::new(channel.clone());
         let chat_client = PromptServiceClient::new(channel); // Uncomment if you have a chat service
 

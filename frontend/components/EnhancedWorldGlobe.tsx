@@ -165,7 +165,6 @@ const EnhancedWorldGlobe = ({
         pointLat={(d: any) => d.latitude}
         pointLng={(d: any) => d.longitude}
         onPointClick={(d: any) => {
-          console.log(d)
           // Open chat with the clicked event
           // Cast the event data to match the GlobeEvent interface
           const event = d as Event

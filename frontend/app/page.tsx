@@ -14,7 +14,6 @@ const DynamicWorldGlobe = dynamic(() => import('@/components/WorldGlobe'), {
 export default function Home() {
   React.useEffect(() => {
     const id = getOrCreateSessionId()
-    console.log(id)
   }, [])
   return (
     <GlobeChatProvider>

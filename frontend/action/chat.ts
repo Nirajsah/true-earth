@@ -4,13 +4,14 @@ import { createStreamableValue } from 'ai/rsc'
 
 export const chat = async (prompt: string, sessionId: string) => {
   const stream = createStreamableValue()
+  const backendUrl = process.env.BACKEND_URL
 
   ;(async () => {
     let fullText = '' // This will accumulate the full response including markdown
     let buffer = '' // Buffer for partial SSE lines
 
     try {
-      const endpoint = 'http://localhost:4000/api/chat' // Replace with your actual endpoint
+      const endpoint = `${backendUrl}/api/chat` // Replace with your actual endpoint
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -101,8 +102,6 @@ export const chat = async (prompt: string, sessionId: string) => {
             }
             // Handle other SSE line types if needed
             else if (line.startsWith('event: ')) {
-              // Handle event lines if your server sends them
-              console.log('Event:', line.substring(7))
             }
           }
         }
@@ -149,4 +148,16 @@ export const chat = async (prompt: string, sessionId: string) => {
   return {
     newMessage: stream.value,
   }
+}
+
+export async function getChatHistory(sessionId: string) {
+  // Do your DB or API call here, securely server-side
+  const res = await fetch(`${process.env.BACKEND_URL}/api/get_chat`, {
+    headers: {
+      'x-session-id': sessionId,
+    },
+  })
+
+  if (!res.ok) throw new Error('Failed to fetch history')
+  return await res.json()
 }

@@ -10,8 +10,17 @@ import {
 } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Flame, Waves, Calendar, Globe2, Filter } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
+import { Flame, Waves, Calendar, Globe2, Filter, X, Menu } from 'lucide-react'
 import EnhancedWorldGlobe from './EnhancedWorldGlobe' // Assuming this component exists and handles props
+import { getFireEvents, getQuakeEvents } from '@/action/event'
 
 // --- UPDATED TYPE DEFINITIONS ---
 type FireEvent = {
@@ -81,6 +90,7 @@ const WorldGlobe: React.FC = () => {
   const [selectedEventType, setSelectedEventType] = useState<
     'all' | 'fire' | 'earthquake'
   >('all')
+  const [showFilters, setShowFilters] = useState<boolean>(false) // State for filter visibility
 
   // Caching states for fetched data
   const [cachedFireData, setCachedFireData] = useState<
@@ -290,12 +300,7 @@ const WorldGlobe: React.FC = () => {
         if (cachedFireData[fireCacheKey]) {
           allFireEvents = cachedFireData[fireCacheKey]
         } else {
-          const fireRes = await fetch(
-            `http://localhost:4000/api/fire_events?from=${fireFrom}&to=${fireTo}`
-          )
-          if (!fireRes.ok)
-            throw new Error(`HTTP error! status: ${fireRes.status}`)
-          const fireData: any[] = await fireRes.json()
+          const fireData = await getFireEvents(fireFrom, fireTo)
           const mappedFireData = fireData.map(mapFireEvent) // Map raw data to client type
           setCachedFireData((prev) => ({
             ...prev,
@@ -314,12 +319,7 @@ const WorldGlobe: React.FC = () => {
         if (cachedEarthquakeData[quakeCacheKey]) {
           allEarthquakeEvents = cachedEarthquakeData[quakeCacheKey]
         } else {
-          const quakeRes = await fetch(
-            `http://localhost:4000/api/quake_events?from=${quakeFrom}&to=${quakeTo}`
-          )
-          if (!quakeRes.ok)
-            throw new Error(`HTTP error! status: ${quakeRes.status}`)
-          const quakeData: any[] = await quakeRes.json()
+          const quakeData = await getQuakeEvents(quakeFrom, quakeTo)
           const mappedQuakeData = quakeData.map(mapEarthquakeEvent) // Map raw data to client type
           setCachedEarthquakeData((prev) => ({
             ...prev,
@@ -386,6 +386,117 @@ const WorldGlobe: React.FC = () => {
     earthquake: filteredEvents.filter((e) => e.type === 'earthquake').length,
   }
 
+  // Reusable Filter Panel Component
+  const FilterPanel = ({ className = '' }: { className?: string }) => (
+    <div className={`space-y-4 ${className} max-h-[calc(100vh-2rem)]`}>
+      <Card className="w-full shadow-lg backdrop-blur-sm bg-white/95">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-md font-semibold text-gray-800 flex items-center gap-2">
+            <Filter className="w-4 h-4 text-blue-600" /> Event Filters
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-2 space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+              Event Type
+            </label>
+            <Select
+              value={selectedEventType}
+              onValueChange={(v) => {
+                setSelectedEventType(v as 'all' | 'fire' | 'earthquake')
+                setSelectedCountry('all') // Reset country filter on type change
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select event type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Events</SelectItem>
+                <SelectItem value="fire">🔥 Fire Events</SelectItem>
+                <SelectItem value="earthquake">🌊 Earthquakes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+              <Calendar className="w-3 h-3" /> Time Range
+            </label>
+            <Select
+              value={timeRange}
+              onValueChange={(v) => setTimeRange(v as TimeRangeKey)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select time range" />
+              </SelectTrigger>
+              <SelectContent>
+                {timeRangeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Country</label>
+            <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select country" />
+              </SelectTrigger>
+              <SelectContent className="max-h-60">
+                <SelectItem value="all">All Countries</SelectItem>
+                {countryList.map((country) => (
+                  <SelectItem key={country} value={country}>
+                    {country}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="w-full shadow-lg backdrop-blur-sm bg-white/95">
+        <CardHeader className="p-4 pb-2">
+          <CardTitle className="text-md font-semibold text-gray-800 flex items-center gap-2">
+            <Globe2 className="w-4 h-4 text-blue-600" /> Event Statistics
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-2 space-y-3">
+          <div className="grid grid-cols-1 gap-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">Total Events</span>
+              <Badge variant="secondary" className="font-semibold">
+                {eventStats.total}
+              </Badge>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 flex items-center gap-1">
+                <Flame className="w-3 h-3 text-red-500" /> Fire Events
+              </span>
+              <Badge variant="destructive" className="font-semibold">
+                {eventStats.fire}
+              </Badge>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 flex items-center gap-1">
+                <Waves className="w-3 h-3 text-orange-500" /> Earthquakes
+              </span>
+              <Badge
+                variant="outline"
+                className="font-semibold border-orange-500 text-orange-600"
+              >
+                {eventStats.earthquake}
+              </Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+
   if (loading) {
     return (
       <div className="relative w-screen h-screen flex flex-col items-center justify-center overflow-hidden">
@@ -401,121 +512,36 @@ const WorldGlobe: React.FC = () => {
 
   return (
     <div className="relative w-full flex flex-col items-center justify-start overflow-hidden">
-      {/* Control Panel */}
-      <div className="absolute top-4 left-4 z-20 space-y-4">
-        <Card className="w-80 shadow-lg backdrop-blur-sm bg-white/95">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-md font-semibold text-gray-800 flex items-center gap-2">
-              <Filter className="w-4 h-4 text-blue-600" /> Event Filters
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2 space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                Event Type
-              </label>
-              <Select
-                value={selectedEventType}
-                onValueChange={(v) => {
-                  setSelectedEventType(v as 'all' | 'fire' | 'earthquake')
-                  setSelectedCountry('all') // Reset country filter on type change
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select event type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Events</SelectItem>
-                  <SelectItem value="fire">🔥 Fire Events</SelectItem>
-                  <SelectItem value="earthquake">🌊 Earthquakes</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* Mobile Toggle Button */}
+      <div className="absolute top-4 left-4 z-30 md:hidden">
+        <Sheet open={showFilters} onOpenChange={setShowFilters}>
+          <SheetTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-white/95 backdrop-blur-sm shadow-lg border-gray-200 hover:bg-white"
+            >
+              <Menu className="h-4 w-4" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-80 p-0">
+            <SheetHeader className="p-4 pb-2 border-b">
+              <SheetTitle className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <Filter className="w-4 h-4 text-blue-600" /> Event Filters
+              </SheetTitle>
+            </SheetHeader>
+            <div className="p-4 h-[calc(100vh-5rem)] overflow-y-auto">
+              <FilterPanel />
             </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> Time Range
-              </label>
-              <Select
-                value={timeRange}
-                onValueChange={(v) => setTimeRange(v as TimeRangeKey)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select time range" />
-                </SelectTrigger>
-                <SelectContent>
-                  {timeRangeOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Country
-              </label>
-              <Select
-                value={selectedCountry}
-                onValueChange={setSelectedCountry}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select country" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60">
-                  <SelectItem value="all">All Countries</SelectItem>
-                  {countryList.map((country) => (
-                    <SelectItem key={country} value={country}>
-                      {country}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="w-80 shadow-lg backdrop-blur-sm bg-white/95">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-md font-semibold text-gray-800 flex items-center gap-2">
-              <Globe2 className="w-4 h-4 text-blue-600" /> Event Statistics
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2 space-y-3">
-            <div className="grid grid-cols-1 gap-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Total Events</span>
-                <Badge variant="secondary" className="font-semibold">
-                  {eventStats.total}
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600 flex items-center gap-1">
-                  <Flame className="w-3 h-3 text-red-500" /> Fire Events
-                </span>
-                <Badge variant="destructive" className="font-semibold">
-                  {eventStats.fire}
-                </Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600 flex items-center gap-1">
-                  <Waves className="w-3 h-3 text-orange-500" /> Earthquakes
-                </span>
-                <Badge
-                  variant="outline"
-                  className="font-semibold border-orange-500 text-orange-600"
-                >
-                  {eventStats.earthquake}
-                </Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          </SheetContent>
+        </Sheet>
       </div>
 
-      {/* Globe */}
+      {/* Desktop Control Panel */}
+      <div className="absolute top-4 left-4 z-20 space-y-4 hidden md:block">
+        <FilterPanel className="w-80" />
+      </div>
+
       <div className="w-full h-full">
         <EnhancedWorldGlobe
           loading={loading}

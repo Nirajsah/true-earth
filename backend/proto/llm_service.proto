@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package llm_service;
+
+option go_package = "ai_orchestrator/llm_service";
+
+// --- Embedding Service Definitions ---
+
+// EmbeddingRequest for a single text input.
+message EmbeddingRequest {
+  string text = 1;
+}
+
+// BatchEmbeddingRequest for multiple text inputs.
+message BatchEmbeddingRequest {
+  repeated string texts = 1;
+}
+
+// EmbeddingResult represents a single embedding vector.
+message EmbeddingResult {
+  repeated float values = 1; // The actual embedding vector (e.g., 768 f32 values)
+}
+
+// EmbeddingResponse contains results for a batch embedding request.
+message EmbeddingResponse {
+  repeated EmbeddingResult embeddings = 1; // List of embedding results, one for each input text
+}
+
+// Service definition for embedding operations.
+service EmbeddingService {
+  // GetEmbedding generates an embedding for a single text.
+  rpc GetEmbedding(EmbeddingRequest) returns (EmbeddingResult);
+
+  // GetBatchEmbeddings generates embeddings for multiple texts in a single call.
+  rpc GetBatchEmbeddings(BatchEmbeddingRequest) returns (EmbeddingResponse);
+}
+
+// --- Prompt Service Definitions ---
+// PromptRequest for sending a text prompt to the LLM.
+message PromptRequest {
+  string text = 1; 
+  string sessionId = 2;
+}
+
+// PromptResponse contains the generated text from a prompt.
+message PromptResponse {
+  string text = 1; // The generated text response from the LLM
+}
+
+// Service definition for prompt generation.
+service PromptService {
+  // GeneratePrompt sends a text prompt to the LLM and returns the generated text.
+  rpc GeneratePrompt(PromptRequest) returns (stream PromptResponse);
+}

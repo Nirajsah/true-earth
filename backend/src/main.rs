@@ -1,9 +1,9 @@
 use axum::{
-    Router,
     routing::{get, post},
+    Router,
 };
 use dotenvy::dotenv;
-use http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderName};
+use http::header::{HeaderName, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use services::ai::AiServiceClient;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -41,7 +41,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mongo_uri = std::env::var("MONGO_URI")?;
     let db_name = std::env::var("MONGO_DB_NAME")?;
-    let grpc_url = std::env::var("GRPC_URI")?;
+    let grpc_url = std::env::var("GRPC_URI")?.trim().to_string();
+
+    println!("{:?}", grpc_url);
 
     // Initialize gRPC Client
     let ai_client: AiServiceClient = AiServiceClient::new(&grpc_url)
@@ -127,7 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(db_service);
 
     // Run our app
-    let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".into());
+    let addr_str = format!("0.0.0.0:{}", port);
+    let addr: SocketAddr = addr_str.parse().unwrap();
     let listener = TcpListener::bind(&addr).await.unwrap();
     tracing::debug!("listening on {}", addr);
     let server = axum::serve(listener, app.into_make_service());

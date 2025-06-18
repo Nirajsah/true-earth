@@ -8,11 +8,14 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/genai"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthgrpc "google.golang.org/grpc/health/grpc_health_v1"
 
 	// For environment variables, though not strictly needed for "hello"
 	// Importing the embedding package for future use
@@ -28,11 +31,6 @@ type server struct {
 	agent        *tl.Agent
 	mongoClient  *mongo.Client
 }
-
-const (
-	// Port is the port on which the server will listen
-	port = ":50051"
-)
 
 func (s *server) GeneratePrompt(req *pb.PromptRequest, stream pb.PromptService_GeneratePromptServer) error {
 	ctx := stream.Context()
@@ -276,6 +274,13 @@ func main() {
 	* 2. for Batch embeddings(call GenerateBatchEmbedding).
 
 	 */
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Cloud Run default port
+	}
+	if !strings.HasPrefix(port, ":") {
+		port = ":" + port
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // Ensure context is cancelled on main exit
@@ -286,11 +291,21 @@ func main() {
 		log.Fatalf("Failed to initialize gRPC server: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	// Create gRPC server with options for Cloud Run
+	grpcServer := grpc.NewServer(
+		grpc.MaxConcurrentStreams(1000),
+		grpc.MaxRecvMsgSize(1024*1024*16), // 16MB
+		grpc.MaxSendMsgSize(1024*1024*16), // 16MB
+	)
 
 	// Register your services with the gRPC server
 	pb.RegisterPromptServiceServer(grpcServer, s)
 	pb.RegisterEmbeddingServiceServer(grpcServer, s)
+
+	// Add health check service
+	healthcheck := health.NewServer()
+	healthgrpc.RegisterHealthServer(grpcServer, healthcheck)
+	healthcheck.SetServingStatus("", healthgrpc.HealthCheckResponse_SERVING)
 
 	lis, err := net.Listen("tcp", port)
 
@@ -298,7 +313,23 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	fmt.Printf("gRPC server listening on %s\n", port)
+	log.Printf("Starting gRPC server on port %s", port)
+
+	// Add a goroutine to check if the server is actually listening
+	go func() {
+		time.Sleep(2 * time.Second)
+		conn, err := net.Dial("tcp", port)
+		if err != nil {
+			log.Printf("Warning: Server may not be listening properly: %v", err)
+		} else {
+			conn.Close()
+			log.Printf("Server is listening successfully on %s", port)
+		}
+	}()
+
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
